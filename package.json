@@ -1,0 +1,16 @@
+{
+  "name": "rootstock-exit-link",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @rootstock-kits/exit",
+    "dev": "npm run dev -w crypto-bill-pay-demo",
+    "lint": "npm run lint -w @rootstock-kits/exit -w crypto-bill-pay-demo --if-present"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
