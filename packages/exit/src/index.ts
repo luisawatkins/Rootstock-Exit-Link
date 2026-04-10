@@ -21,6 +21,7 @@ export {
 export {
   createFlyoverClient,
   flyoverNetworkForExit,
+  isEthereumProvider,
   type EthereumProvider,
 } from './flyover/client.js'
 export { inferBtcAddressType } from './flyover/btcAddressType.js'
@@ -33,11 +34,17 @@ export {
 export { createPowPegSdk, estimatePowPegPegoutFees } from './powpeg/fees.js'
 
 export { createRskSwapSdk, rskSwapEnvName } from './swap/rskSwap.js'
-export { runSwapToRbtc, type SwapToRbtcParams, type SwapToRbtcResult } from './swap/swapToRbtc.js'
+export {
+  pickBestSwapEstimation,
+  runSwapToRbtc,
+  type SwapToRbtcParams,
+  type SwapToRbtcResult,
+} from './swap/swapToRbtc.js'
 
 export { mapPegoutDetailStatusToExitStage } from './progress/flyoverStatus.js'
 
 export { exitLinkQueryKeys } from './hooks/queryKeys.js'
+export { useFlyoverClient } from './hooks/useFlyoverClient.js'
 export { usePegoutQuotes, type UsePegoutQuotesOptions } from './hooks/usePegoutQuotes.js'
 export { usePowPegFees, type UsePowPegFeesOptions } from './hooks/usePowPegFees.js'
 export { useSwapToRbtc, type UseSwapToRbtcVariables } from './hooks/useSwapToRbtc.js'

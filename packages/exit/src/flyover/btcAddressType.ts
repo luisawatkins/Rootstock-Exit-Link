@@ -12,5 +12,5 @@ export function inferBtcAddressType(address: string): BtcAddressType {
     if (address.startsWith('1') || address.startsWith('m') || address.startsWith('n')) return 'p2pkh'
     return 'p2sh'
   }
-  return 'p2wpkh'
+  throw new Error('Unrecognized Bitcoin address format for Flyover address-type inference.')
 }

@@ -8,7 +8,11 @@
   "scripts": {
     "build": "npm run build -w @rootstock-kits/exit",
     "dev": "npm run dev -w crypto-bill-pay-demo",
-    "lint": "npm run lint -w @rootstock-kits/exit -w crypto-bill-pay-demo --if-present"
+    "lint": "npm run lint -w @rootstock-kits/exit -w crypto-bill-pay-demo --if-present",
+    "test": "npm run test -w @rootstock-kits/exit"
+  },
+  "overrides": {
+    "serialize-javascript": "^6.0.2"
   },
   "engines": {
     "node": ">=18"

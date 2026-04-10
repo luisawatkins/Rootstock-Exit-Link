@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   decimalToUnits,
   ExitProgressTracker,
@@ -6,6 +6,7 @@ import {
   rbtcDecimalToWei,
   recommendBridgeRoute,
   satoshisToWei,
+  useFlyoverClient,
   useFlyoverPegoutMutation,
   usePegoutQuotes,
   usePowPegFees,
@@ -26,10 +27,15 @@ function shortAddr(a: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
 }
 
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export function App() {
   const [network, setNetwork] = useState<ExitNetwork>('testnet')
   const [account, setAccount] = useState<string | undefined>()
-  const [chainWarning, setChainWarning] = useState<string | undefined>()
+  const [chainId, setChainId] = useState<string | undefined>()
+  const [eth, setEth] = useState<EthereumProvider | undefined>()
   const [payInput, setPayInput] = useState(
     'bitcoin:tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx?amount=0.0001&label=Invoice%20demo',
   )
@@ -38,8 +44,49 @@ export function App() {
   const [payToken, setPayToken] = useState<'RBTC' | 'RIF' | 'USDT'>('RBTC')
   const [tokenAmount, setTokenAmount] = useState('10')
   const [exitStage, setExitStage] = useState<ExitStage>('idle')
+  const [pegoutError, setPegoutError] = useState<string | undefined>()
+  const [swapError, setSwapError] = useState<string | undefined>()
+  const [lastPegoutTx, setLastPegoutTx] = useState<string | undefined>()
+  const [lastSwapTx, setLastSwapTx] = useState<string | undefined>()
 
-  const eth = typeof window !== 'undefined' ? (window as Window & { ethereum?: EthereumProvider }).ethereum : undefined
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setEth((window as Window & { ethereum?: EthereumProvider }).ethereum)
+  }, [])
+
+  useEffect(() => {
+    if (!eth) return
+    const onChain = (cid: unknown) => {
+      if (typeof cid === 'string') setChainId(cid)
+    }
+    const onAccounts = (accs: unknown) => {
+      const list = accs as string[]
+      setAccount(list[0])
+      if (!list[0]) {
+        setChainId(undefined)
+        setLastPegoutTx(undefined)
+        setLastSwapTx(undefined)
+      }
+    }
+    eth.on?.('chainChanged', onChain)
+    eth.on?.('accountsChanged', onAccounts)
+    return () => {
+      eth.removeListener?.('chainChanged', onChain)
+      eth.removeListener?.('accountsChanged', onAccounts)
+    }
+  }, [eth])
+
+  useEffect(() => {
+    if (!eth || !account) return
+    void (async () => {
+      try {
+        const id = (await eth.request({ method: 'eth_chainId' })) as string
+        setChainId(id)
+      } catch {
+        /* ignore */
+      }
+    })()
+  }, [network, eth, account])
 
   const parsed = useMemo(() => parseBitcoinPayInput(payInput, network), [payInput, network])
 
@@ -48,7 +95,8 @@ export function App() {
     if (parsed.value.amountSatoshis !== undefined) {
       return satoshisToWei(parsed.value.amountSatoshis)
     }
-    return rbtcDecimalToWei(rbtcAmount.trim())
+    const w = rbtcDecimalToWei(rbtcAmount.trim())
+    return w === null ? undefined : w
   }, [parsed, rbtcAmount])
 
   const rbtcForPowpeg = useMemo(() => {
@@ -56,31 +104,38 @@ export function App() {
     return weiToRbtcDecimal(valueWei)
   }, [valueWei, rbtcAmount])
 
+  const chainMismatch =
+    Boolean(account) &&
+    Boolean(chainId) &&
+    chainId!.toLowerCase() !== CHAIN_IDS[network].toLowerCase()
+
   const connect = useCallback(async () => {
     if (!eth) {
-      setChainWarning('No injected wallet (MetaMask, Rabby, etc.).')
+      setPegoutError('No injected wallet (MetaMask, Rabby, etc.).')
       return
     }
-    const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[]
-    const addr = accounts[0]
-    setAccount(addr)
-    const id = (await eth.request({ method: 'eth_chainId' })) as string
-    if (id.toLowerCase() !== CHAIN_IDS[network].toLowerCase()) {
-      setChainWarning(
-        `Switch wallet to Rootstock ${network} (chainId ${CHAIN_IDS[network]}). Connected: ${id}`,
-      )
-    } else {
-      setChainWarning(undefined)
+    try {
+      const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[]
+      const addr = accounts[0]
+      setAccount(addr)
+      const id = (await eth.request({ method: 'eth_chainId' })) as string
+      setChainId(id)
+      setPegoutError(undefined)
+      setSwapError(undefined)
+    } catch (e) {
+      setPegoutError(errMessage(e))
     }
-  }, [eth, network])
+  }, [eth])
+
+  const flyoverQuery = useFlyoverClient(eth, network, account)
 
   const pegoutQuery = usePegoutQuotes({
-    provider: eth,
+    flyover: flyoverQuery.data,
     network,
     rskRefundAddress: account,
     btcDestination: parsed.ok ? parsed.value.address : undefined,
     valueWei,
-    enabled: parsed.ok && Boolean(account) && valueWei !== undefined && valueWei > 0n,
+    enabled: parsed.ok && Boolean(account) && valueWei !== undefined && valueWei > 0n && !chainMismatch,
   })
 
   const powpegFees = usePowPegFees({
@@ -104,30 +159,37 @@ export function App() {
   const pegoutMut = useFlyoverPegoutMutation()
   const swapMut = useSwapToRbtc()
 
+  const canSendOnChain = Boolean(eth && account && !chainMismatch)
+
   const runPegout = async () => {
-    if (!eth || !account || !pegoutQuery.data) return
+    if (!flyoverQuery.data || !pegoutQuery.data) return
     setExitStage('rootstock_tx')
+    setPegoutError(undefined)
     try {
       const tx = await pegoutMut.mutateAsync({
-        provider: eth,
-        network,
+        flyover: flyoverQuery.data,
         selection: pegoutQuery.data,
       })
       setExitStage('bridge')
-      console.info('depositPegout tx', tx)
+      setLastPegoutTx(tx)
     } catch (e) {
-      console.error(e)
+      setPegoutError(errMessage(e))
       setExitStage('idle')
     }
   }
 
   const runSwap = async () => {
     if (!eth || !account) return
-    const dec = payToken === 'USDT' ? 18 : 18
+    const dec = 18
     const fromAmount = decimalToUnits(tokenAmount.trim(), dec)
-    if (fromAmount === null || fromAmount <= 0n) return
+    if (fromAmount === null || fromAmount <= 0n) {
+      setSwapError('Enter a valid token amount (up to 18 decimal places).')
+      return
+    }
+    setSwapError(undefined)
+    swapMut.reset()
     try {
-      await swapMut.mutateAsync({
+      const res = await swapMut.mutateAsync({
         provider: eth,
         network,
         fromToken: payToken,
@@ -135,29 +197,33 @@ export function App() {
         recipientRsk: account,
         refundRsk: account,
       })
+      setLastSwapTx(res.txHash)
     } catch (e) {
-      console.error(e)
+      setSwapError(errMessage(e))
     }
   }
 
   const powpegUrl =
     network === 'testnet' ? 'https://powpeg.testnet.rootstock.io/' : 'https://powpeg.rootstock.io/'
 
+  const networkSelectId = 'demo-exit-network'
+
   return (
     <div style={{ maxWidth: 920, margin: '0 auto', padding: '2.5rem 1.25rem 4rem' }}>
       <header style={{ marginBottom: '2.25rem' }}>
-        <p
+        <h1
           style={{
             fontFamily: "'Instrument Serif', Georgia, serif",
             fontSize: '2.75rem',
             lineHeight: 1.1,
             margin: '0 0 0.5rem',
+            fontWeight: 400,
             fontStyle: 'italic',
             color: 'var(--accent)',
           }}
         >
           Crypto Bill Pay
-        </p>
+        </h1>
         <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '36rem' }}>
           Demo of <strong>@rootstock-kits/exit</strong>: pay a Bitcoin invoice from Rootstock using Flyover or PowPeg,
           with optional RIF/USDT → RBTC swap via RSK Swap.
@@ -184,8 +250,11 @@ export function App() {
           }}
         >
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-            <label style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Network</label>
+            <label htmlFor={networkSelectId} style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+              Network
+            </label>
             <select
+              id={networkSelectId}
               value={network}
               onChange={(e) => setNetwork(e.target.value as ExitNetwork)}
               style={selectStyle}
@@ -197,8 +266,17 @@ export function App() {
               {account ? `Connected ${shortAddr(account)}` : 'Connect wallet'}
             </button>
           </div>
-          {chainWarning && (
-            <div style={{ color: 'var(--warn)', fontSize: '0.85rem' }}>{chainWarning}</div>
+          {chainMismatch && (
+            <div role="alert" style={{ color: 'var(--warn)', fontSize: '0.85rem' }}>
+              Switch wallet to Rootstock {network} (chainId {CHAIN_IDS[network]}). Connected: {chainId}
+              <br />
+              On-chain pay and swap are disabled until the chain matches.
+            </div>
+          )}
+          {flyoverQuery.isError && (
+            <div role="alert" style={{ color: '#f87171', fontSize: '0.85rem' }}>
+              Flyover client failed: {flyoverQuery.error.message}
+            </div>
           )}
 
           <label style={labelStyle}>
@@ -270,21 +348,37 @@ export function App() {
               Quotes load via liquidity providers. Executing calls <code>acceptPegoutQuote</code> and{' '}
               <code>depositPegout</code> on the LBC.
             </p>
-            {pegoutQuery.isLoading && <div style={{ color: 'var(--muted)' }}>Loading quotes…</div>}
-            {pegoutQuery.error && (
-              <div style={{ color: '#f87171', fontSize: '0.88rem' }}>{pegoutQuery.error.message}</div>
-            )}
-            {pegoutQuery.data && (
-              <div style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>
-                Best quote from <strong style={{ color: 'var(--text)' }}>{pegoutQuery.data.preview.providerName}</strong>
-                — total {weiToRbtcDecimal(pegoutQuery.data.preview.totalWei)} RBTC (incl. fees, wei{' '}
-                {pegoutQuery.data.preview.totalWei.toString()})
-              </div>
-            )}
+            <div aria-live="polite" style={{ display: 'grid', gap: '0.35rem' }}>
+              {pegoutQuery.isLoading && <div style={{ color: 'var(--muted)' }}>Loading quotes…</div>}
+              {pegoutQuery.error && (
+                <div style={{ color: '#f87171', fontSize: '0.88rem' }}>{pegoutQuery.error.message}</div>
+              )}
+              {pegoutQuery.data && (
+                <div style={{ fontSize: '0.88rem', color: 'var(--muted)' }}>
+                  Best quote from <strong style={{ color: 'var(--text)' }}>{pegoutQuery.data.preview.providerName}</strong>
+                  — total {weiToRbtcDecimal(pegoutQuery.data.preview.totalWei)} RBTC (incl. fees, wei{' '}
+                  {pegoutQuery.data.preview.totalWei.toString()})
+                </div>
+              )}
+              {pegoutError && (
+                <div role="alert" style={{ color: '#f87171', fontSize: '0.88rem' }}>
+                  {pegoutError}
+                </div>
+              )}
+              {lastPegoutTx && (
+                <div style={{ fontSize: '0.85rem', color: 'var(--ok)', wordBreak: 'break-all' }}>
+                  Last peg-out tx: {lastPegoutTx}
+                </div>
+              )}
+            </div>
             <button
               type="button"
-              style={{ ...btnPrimary, marginTop: '0.75rem', opacity: pegoutQuery.data ? 1 : 0.45 }}
-              disabled={!pegoutQuery.data || pegoutMut.isPending}
+              style={{
+                ...btnPrimary,
+                marginTop: '0.75rem',
+                opacity: pegoutQuery.data && canSendOnChain ? 1 : 0.45,
+              }}
+              disabled={!pegoutQuery.data || !canSendOnChain || pegoutMut.isPending || !flyoverQuery.data}
               onClick={runPegout}
             >
               {pegoutMut.isPending ? 'Signing…' : 'Pay Bitcoin (Flyover)'}
@@ -326,16 +420,26 @@ export function App() {
                 />
               )}
               {payToken !== 'RBTC' && (
-                <button type="button" style={btnSecondary} disabled={swapMut.isPending} onClick={runSwap}>
+                <button
+                  type="button"
+                  style={btnSecondary}
+                  disabled={swapMut.isPending || !canSendOnChain}
+                  onClick={runSwap}
+                >
                   {swapMut.isPending ? 'Swapping…' : 'Run swap'}
                 </button>
               )}
             </div>
-            {swapMut.isSuccess && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--ok)' }}>
-                Swap submitted (see console for tx hash).
-              </div>
-            )}
+            <div aria-live="polite" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+              {swapError && (
+                <div role="alert" style={{ color: '#f87171' }}>
+                  {swapError}
+                </div>
+              )}
+              {swapMut.isSuccess && lastSwapTx && (
+                <div style={{ color: 'var(--ok)', wordBreak: 'break-all' }}>Swap tx: {lastSwapTx}</div>
+              )}
+            </div>
           </div>
         </div>
 

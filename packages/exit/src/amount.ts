@@ -29,6 +29,7 @@ export function decimalToUnits(amount: string, decimals: number): bigint | null 
   const t = amount.trim()
   if (!t || !/^\d+(\.\d+)?$/.test(t)) return null
   const [whole, frac = ''] = t.split('.')
+  if (frac.length > decimals) return null
   const fracPadded = `${frac}${'0'.repeat(decimals)}`.slice(0, decimals)
   try {
     const base = 10n ** BigInt(decimals)

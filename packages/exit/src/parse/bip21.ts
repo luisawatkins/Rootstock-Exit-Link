@@ -5,14 +5,18 @@ export type ParseBitcoinPayResult =
   | { ok: true; value: ParsedBitcoinPay }
   | { ok: false; error: string }
 
+/** Maximum BTC supply (21M) in satoshis — rejects unreasonably large URI amounts. */
+const MAX_SATS = 21_000_000n * 100_000_000n
+
 function parseBtcToSatoshis(amount: string): bigint | null {
   const t = amount.trim()
   if (!t || !/^\d+(\.\d+)?$/.test(t)) return null
   const [whole, frac = ''] = t.split('.')
+  if (frac.length > 8) return null
   const fracPadded = `${frac}00000000`.slice(0, 8)
   if (!/^\d{8}$/.test(fracPadded)) return null
   try {
-    return BigInt(whole) * 10_000_000n + BigInt(fracPadded)
+    return BigInt(whole) * 100_000_000n + BigInt(fracPadded)
   } catch {
     return null
   }
@@ -58,6 +62,7 @@ export function parseBitcoinPayInput(input: string, network: ExitNetwork): Parse
   if (amountBtc) {
     const sats = parseBtcToSatoshis(amountBtc)
     if (sats === null || sats <= 0n) return { ok: false, error: 'Invalid amount in payment URI.' }
+    if (sats > MAX_SATS) return { ok: false, error: 'Amount in payment URI exceeds the maximum Bitcoin supply.' }
     amountSatoshis = sats
   }
 

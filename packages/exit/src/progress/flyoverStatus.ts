@@ -8,6 +8,14 @@ export function mapPegoutDetailStatusToExitStage(rawStatus: string): ExitStage {
   const simple = FlyoverUtils.getSimpleQuoteStatus(rawStatus)
   if (simple === 'SUCCESS') return 'confirmed'
   if (simple === 'FAILED' || simple === 'EXPIRED') return 'idle'
-  // Distinguishing mempool vs bridge would need BTC / RSK tx inspection; treat in-flight as bridge.
+
+  const lower = rawStatus.toLowerCase()
+  if (
+    simple === 'PENDING' &&
+    (lower.includes('mempool') || lower.includes('btc') || lower.includes('bitcoin'))
+  ) {
+    return 'mempool'
+  }
+
   return 'bridge'
 }

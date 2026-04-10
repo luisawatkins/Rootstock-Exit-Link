@@ -34,13 +34,18 @@ export function ExitProgressTracker({ stage, className }: ExitProgressTrackerPro
       }}
     >
       <div style={{ fontWeight: 600, color: '#0f172a' }}>Exit progress</div>
-      <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+      <ol
+        aria-label="Exit progress steps"
+        style={{ margin: 0, padding: 0, listStyle: 'none' }}
+        aria-live="polite"
+      >
         {PIPELINE.map((step, i) => {
           const done = active > i
           const current = active === i
           return (
             <li
               key={step.stage}
+              aria-current={current ? 'step' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',

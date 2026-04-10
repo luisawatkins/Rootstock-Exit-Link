@@ -1,6 +1,8 @@
 import type { ExitNetwork } from '../types.js'
 
 export const exitLinkQueryKeys = {
+  flyoverClient: (network: ExitNetwork, walletAccount: string) =>
+    ['exit-link', 'flyover-client', network, walletAccount] as const,
   pegoutQuotes: (p: {
     network: ExitNetwork
     rskRefundAddress: string
@@ -9,10 +11,4 @@ export const exitLinkQueryKeys = {
   }) => ['exit-link', 'pegout-quotes', p] as const,
   powpegFees: (p: { network: ExitNetwork; amountRbtc: string; fromAddress: string }) =>
     ['exit-link', 'powpeg-fees', p] as const,
-  swapEstimate: (p: {
-    network: ExitNetwork
-    fromToken: string
-    fromAmount: string
-    userAddress: string
-  }) => ['exit-link', 'swap-estimate', p] as const,
 }

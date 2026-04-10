@@ -1,11 +1,11 @@
+import type { Flyover } from '@rsksmart/flyover-sdk'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { createFlyoverClient, flyoverNetworkForExit, type EthereumProvider } from '../flyover/client.js'
 import { fetchBestPegoutQuote, type PegoutQuoteSelection } from '../flyover/pegout.js'
 import type { ExitNetwork } from '../types.js'
 import { exitLinkQueryKeys } from './queryKeys.js'
 
 export interface UsePegoutQuotesOptions {
-  provider: EthereumProvider | undefined
+  flyover: Flyover | undefined
   network: ExitNetwork
   rskRefundAddress: string | undefined
   btcDestination: string | undefined
@@ -17,7 +17,7 @@ export function usePegoutQuotes(
   options: UsePegoutQuotesOptions,
 ): UseQueryResult<PegoutQuoteSelection | null, Error> {
   const {
-    provider,
+    flyover,
     network,
     rskRefundAddress,
     btcDestination,
@@ -27,7 +27,7 @@ export function usePegoutQuotes(
 
   const canRun =
     enabled &&
-    Boolean(provider) &&
+    Boolean(flyover) &&
     Boolean(rskRefundAddress) &&
     Boolean(btcDestination) &&
     valueWei !== undefined &&
@@ -42,14 +42,13 @@ export function usePegoutQuotes(
     }),
     enabled: canRun,
     queryFn: async () => {
-      if (!provider || !rskRefundAddress || !btcDestination || valueWei === undefined) return null
-      const flyover = await createFlyoverClient(provider, flyoverNetworkForExit(network))
+      if (!flyover || !rskRefundAddress || !btcDestination || valueWei === undefined) return null
       return fetchBestPegoutQuote(flyover, {
         rskRefundAddress,
         btcDestination,
         valueWei,
       })
     },
-    staleTime: 20_000,
+    staleTime: 5_000,
   })
 }
