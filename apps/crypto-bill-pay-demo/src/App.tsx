@@ -23,6 +23,14 @@ const CHAIN_IDS: Record<ExitNetwork, string> = {
   testnet: '0x1f',
 }
 
+type PayToken = 'RBTC' | 'RIF' | 'USDT'
+
+const TOKEN_DECIMALS: Record<PayToken, number> = {
+  RBTC: 18,
+  RIF: 18,
+  USDT: 18,
+}
+
 function shortAddr(a: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`
 }
@@ -41,7 +49,7 @@ export function App() {
   )
   const [rbtcAmount, setRbtcAmount] = useState('0.005')
   const [urgency, setUrgency] = useState<Urgency>('high')
-  const [payToken, setPayToken] = useState<'RBTC' | 'RIF' | 'USDT'>('RBTC')
+  const [payToken, setPayToken] = useState<PayToken>('RBTC')
   const [tokenAmount, setTokenAmount] = useState('10')
   const [exitStage, setExitStage] = useState<ExitStage>('idle')
   const [pegoutError, setPegoutError] = useState<string | undefined>()
@@ -161,7 +169,7 @@ export function App() {
 
   const canSendOnChain = Boolean(eth && account && !chainMismatch)
 
-  const runPegout = async () => {
+  const runPegout = useCallback(async () => {
     if (!flyoverQuery.data || !pegoutQuery.data) return
     setExitStage('rootstock_tx')
     setPegoutError(undefined)
@@ -176,14 +184,14 @@ export function App() {
       setPegoutError(errMessage(e))
       setExitStage('idle')
     }
-  }
+  }, [flyoverQuery.data, pegoutQuery.data, pegoutMut])
 
-  const runSwap = async () => {
+  const runSwap = useCallback(async () => {
     if (!eth || !account) return
-    const dec = 18
+    const dec = TOKEN_DECIMALS[payToken]
     const fromAmount = decimalToUnits(tokenAmount.trim(), dec)
     if (fromAmount === null || fromAmount <= 0n) {
-      setSwapError('Enter a valid token amount (up to 18 decimal places).')
+      setSwapError(`Enter a valid token amount (up to ${dec} decimal places).`)
       return
     }
     setSwapError(undefined)
@@ -201,12 +209,13 @@ export function App() {
     } catch (e) {
       setSwapError(errMessage(e))
     }
-  }
+  }, [eth, account, payToken, tokenAmount, network, swapMut])
 
   const powpegUrl =
     network === 'testnet' ? 'https://powpeg.testnet.rootstock.io/' : 'https://powpeg.rootstock.io/'
 
   const networkSelectId = 'demo-exit-network'
+  const tokenSelectId = 'demo-pay-token'
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto', padding: '2.5rem 1.25rem 4rem' }}>
@@ -379,7 +388,9 @@ export function App() {
                 opacity: pegoutQuery.data && canSendOnChain ? 1 : 0.45,
               }}
               disabled={!pegoutQuery.data || !canSendOnChain || pegoutMut.isPending || !flyoverQuery.data}
-              onClick={runPegout}
+              onClick={() => {
+                void runPegout()
+              }}
             >
               {pegoutMut.isPending ? 'Signing…' : 'Pay Bitcoin (Flyover)'}
             </button>
@@ -402,9 +413,13 @@ export function App() {
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Auto-swap to RBTC</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              <label htmlFor={tokenSelectId} style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                Token
+              </label>
               <select
+                id={tokenSelectId}
                 value={payToken}
-                onChange={(e) => setPayToken(e.target.value as typeof payToken)}
+                onChange={(e) => setPayToken(e.target.value as PayToken)}
                 style={selectStyle}
               >
                 <option value="RBTC">RBTC (no swap)</option>
@@ -415,7 +430,7 @@ export function App() {
                 <input
                   value={tokenAmount}
                   onChange={(e) => setTokenAmount(e.target.value)}
-                  placeholder="Amount (18 decimals)"
+                  placeholder="Amount"
                   style={{ ...inputStyle, minWidth: 140 }}
                 />
               )}
@@ -424,7 +439,9 @@ export function App() {
                   type="button"
                   style={btnSecondary}
                   disabled={swapMut.isPending || !canSendOnChain}
-                  onClick={runSwap}
+                  onClick={() => {
+                    void runSwap()
+                  }}
                 >
                   {swapMut.isPending ? 'Swapping…' : 'Run swap'}
                 </button>
@@ -452,7 +469,7 @@ export function App() {
           }}
         >
           <ExitProgressTracker stage={exitStage} />
-          <p style={{ marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
+          <p style={{ marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--muted-strong)' }}>
             After a Flyover deposit, poll <code>getPegoutStatus</code> and map statuses with{' '}
             <code>mapPegoutDetailStatusToExitStage</code> from the kit to drive this UI.
           </p>
