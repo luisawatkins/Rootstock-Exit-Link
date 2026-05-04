@@ -41,7 +41,7 @@ export {
   type SwapToRbtcResult,
 } from './swap/swapToRbtc.js'
 
-export { mapPegoutDetailStatusToExitStage } from './progress/flyoverStatus.js'
+export { FlyoverPegoutStatus, mapPegoutDetailStatusToExitStage } from './progress/flyoverStatus.js'
 
 export { exitLinkQueryKeys } from './hooks/queryKeys.js'
 export { useFlyoverClient } from './hooks/useFlyoverClient.js'

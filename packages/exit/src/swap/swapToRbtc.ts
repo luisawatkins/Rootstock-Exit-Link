@@ -17,7 +17,9 @@ export interface SwapToRbtcResult {
 const RSK_CHAIN = '30'
 const DEFAULT_SLIPPAGE_BPS = 100
 
-function estimationTotalWei(e: SwapEstimation): bigint {
+type EstimationLike = Pick<SwapEstimation, 'providerId' | 'total'>
+
+function estimationTotalWei(e: Pick<SwapEstimation, 'total'>): bigint {
   const t = e.total
   if (typeof t === 'bigint') return t
   if (typeof t === 'number' && Number.isFinite(t)) return BigInt(Math.trunc(t))
@@ -25,7 +27,7 @@ function estimationTotalWei(e: SwapEstimation): bigint {
 }
 
 /** Prefer the route with the highest stated `total` in destination units (RBTC wei for swaps → RBTC). */
-export function pickBestSwapEstimation(estimations: SwapEstimation[]): SwapEstimation {
+export function pickBestSwapEstimation<T extends EstimationLike>(estimations: T[]): T {
   if (estimations.length === 0) {
     throw new Error('No swap estimations to choose from.')
   }

@@ -18,6 +18,7 @@ export function useSwapToRbtc(): UseMutationResult<SwapToRbtcResult, Error, UseS
         fromAmount: vars.fromAmount,
         recipientRsk: vars.recipientRsk,
         refundRsk: vars.refundRsk,
+        slippageBps: vars.slippageBps,
       })
     },
   })
